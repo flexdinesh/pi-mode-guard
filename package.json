@@ -1,0 +1,19 @@
+{
+  "name": "pi-mode-guard",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Three-mode workflow guard for the pi coding agent",
+  "keywords": [
+    "pi-package",
+    "pi-extension"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
+  }
+}
