@@ -1,110 +1,56 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Key } from "@mariozechner/pi-tui";
-
-const PLAN_TOOLS = ["read", "bash", "grep", "find", "ls"];
-const BUILD_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
-
-const DESTRUCTIVE_PATTERNS = [
-  /\brm\b/i,
-  /\brmdir\b/i,
-  /\bmv\b/i,
-  /\bcp\b/i,
-  /\bmkdir\b/i,
-  /\btouch\b/i,
-  /\bchmod\b/i,
-  /\bchown\b/i,
-  /\bchgrp\b/i,
-  /\bln\b/i,
-  /\btee\b/i,
-  /\btruncate\b/i,
-  /\bdd\b/i,
-  /\bshred\b/i,
-  /(^|[^<])\>(?!>)/,
-  /\>\>/,
-  /\bnpm\s+(install|uninstall|update|ci|link|publish)/i,
-  /\byarn\s+(add|remove|install|publish)/i,
-  /\bpnpm\s+(add|remove|install|publish)/i,
-  /\bpip\s+(install|uninstall)/i,
-  /\bapt(\-get)?\s+(install|remove|purge|update|upgrade)/i,
-  /\bbrew\s+(install|uninstall|upgrade)/i,
-  /\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|branch\s+\-[dD]|stash|cherry\-pick|revert|tag|init|clone)/i,
-  /\bsudo\b/i,
-  /\bsu\b/i,
-  /\bkill\b/i,
-  /\bpkill\b/i,
-  /\bkillall\b/i,
-  /\breboot\b/i,
-  /\bshutdown\b/i,
-  /\bsystemctl\s+(start|stop|restart|enable|disable)/i,
-  /\bservice\s+\S+\s+(start|stop|restart)/i,
-  /\b(vim?|nano|emacs|code|subl)\b/i,
-];
-
-function isCurlCommand(command: string): boolean {
-  return /^\s*curl\b/i.test(command);
-}
-
-function stripSafeCurlRedirects(command: string): string {
-  return command
-    .replace(/\s*&>\s*\/dev\/null\b/g, "")
-    .replace(/\s*[12]?>\s*\/dev\/null\b/g, "")
-    .replace(/\s*[12]>&[12]\b/g, "");
-}
+import { isDestructiveCommand } from "./guards.js";
+import { MODE_CONFIG, MODE_ORDER, isMode, modeLabel, nextMode, type Mode } from "./modes.js";
 
 export default function modeGuardExtension(pi: ExtensionAPI): void {
-  let planModeEnabled = false;
+  let activeMode: Mode = "conversation";
   let pendingToggle = false;
 
   function persistState(): void {
     pi.appendEntry("mode-guard", {
-      planMode: planModeEnabled,
+      mode: activeMode,
     });
   }
 
+  function applyActiveTools(): void {
+    pi.setActiveTools(MODE_CONFIG[activeMode].tools);
+  }
+
   function updateStatus(ctx: ExtensionContext): void {
-    if (planModeEnabled) {
-      ctx.ui.setStatus("mode-guard", ctx.ui.theme.fg("warning", "🔒 plan"));
-    } else {
-      ctx.ui.setStatus("mode-guard", ctx.ui.theme.fg("success", "Build 🚀"));
-    }
+    const config = MODE_CONFIG[activeMode];
+    ctx.ui.setStatus("mode-guard", ctx.ui.theme.fg(config.statusTone, config.statusText));
   }
 
-  function setPlanMode(ctx: ExtensionContext): void {
-    planModeEnabled = true;
-    pi.setActiveTools(PLAN_TOOLS);
-    ctx.ui.notify("Plan mode: read-only. edit/write blocked. destructive bash requires confirmation.", "info");
-    updateStatus(ctx);
-    persistState();
-  }
-
-  function setBuildMode(ctx: ExtensionContext): void {
-    planModeEnabled = false;
-    pi.setActiveTools(BUILD_TOOLS);
-    ctx.ui.notify("Build mode: full tool access restored.", "info");
+  function setMode(ctx: ExtensionContext, mode: Mode): void {
+    activeMode = mode;
+    applyActiveTools();
+    ctx.ui.notify(MODE_CONFIG[mode].notification, "info");
     updateStatus(ctx);
     persistState();
   }
 
   function toggleMode(ctx: ExtensionContext): void {
-    if (planModeEnabled) {
-      setBuildMode(ctx);
-    } else {
-      setPlanMode(ctx);
-    }
+    setMode(ctx, nextMode(activeMode));
   }
 
-  pi.registerCommand("plan", {
-    description: "Enter plan mode (read-only)",
-    handler: async (_args, ctx) => setPlanMode(ctx),
-  });
+  function restoreMode(data?: { mode?: unknown; planMode?: boolean }): Mode {
+    if (isMode(data?.mode)) return data.mode;
+    if (data?.planMode === true) return "plan";
+    if (data?.planMode === false) return "build";
+    return "conversation";
+  }
 
-  pi.registerCommand("build", {
-    description: "Enter build mode (full access)",
-    handler: async (_args, ctx) => setBuildMode(ctx),
-  });
+  for (const mode of MODE_ORDER) {
+    const config = MODE_CONFIG[mode];
+    pi.registerCommand(config.command, {
+      description: config.description,
+      handler: async (_args, ctx) => setMode(ctx, mode),
+    });
+  }
 
   pi.registerShortcut(Key.ctrlAlt("p"), {
-    description: "Toggle plan/build mode",
+    description: "Cycle conversation/plan/build mode",
     handler: async (ctx) => {
       if (!ctx.isIdle()) {
         if (pendingToggle) {
@@ -121,24 +67,22 @@ export default function modeGuardExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    if (!planModeEnabled) return undefined;
+    if (activeMode === "build") return undefined;
 
     if (event.toolName === "edit" || event.toolName === "write") {
       return {
         block: true,
-        reason: `Plan mode active: ${event.toolName} is blocked. Use /build to enable file modifications.`,
+        reason: `${modeLabel(activeMode)} mode active: ${event.toolName} is blocked. Use /build to enable file modifications.`,
       };
     }
 
     if (event.toolName === "bash") {
-      const command = (event.input.command as string) ?? "";
-      const commandForDetection = isCurlCommand(command) ? stripSafeCurlRedirects(command) : command;
-      const isDestructive = DESTRUCTIVE_PATTERNS.some((p) => p.test(commandForDetection));
-      if (isDestructive) {
+      const command = (event.input.command as string | undefined) ?? "";
+      if (isDestructiveCommand(command)) {
         if (!ctx.hasUI) {
-          return { block: true, reason: `Plan mode: destructive bash blocked (no UI for confirmation).\nCommand: ${command}` };
+          return { block: true, reason: `${modeLabel(activeMode)} mode: destructive bash blocked (no UI for confirmation).\nCommand: ${command}` };
         }
-        const ok = await ctx.ui.confirm("Destructive bash in plan mode", `Allow?\n\n${command}`);
+        const ok = await ctx.ui.confirm(`Destructive bash in ${activeMode} mode`, `Allow?\n\n${command}`);
         if (!ok) {
           return { block: true, reason: "Blocked by user" };
         }
@@ -149,16 +93,13 @@ export default function modeGuardExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async () => {
-    if (!planModeEnabled) return;
+    const systemReminder = MODE_CONFIG[activeMode].systemReminder;
+    if (!systemReminder) return;
+
     return {
       message: {
-        customType: "mode-guard-plan",
-        content: `[MODE: PLAN]
-You are in plan mode. File modifications are DISABLED.
-- You cannot use edit or write tools
-- Destructive bash commands require user confirmation
-- Focus on exploration, analysis, and planning only
-- Do not attempt to make changes to files or the system`,
+        customType: `mode-guard-${activeMode}`,
+        content: systemReminder,
         display: false,
       },
     };
@@ -175,24 +116,15 @@ You are in plan mode. File modifications are DISABLED.
     const entries = ctx.sessionManager.getEntries();
     const lastEntry = entries
       .filter((e: { type: string; customType?: string }) => e.type === "custom" && e.customType === "mode-guard")
-      .pop() as { data?: { planMode?: boolean } } | undefined;
+      .pop() as { data?: { mode?: unknown; planMode?: boolean } } | undefined;
 
-    if (lastEntry) {
-      // restore persisted mode
-      if (lastEntry.data?.planMode === true) {
-        planModeEnabled = true;
-        pi.setActiveTools(PLAN_TOOLS);
-      } else {
-        planModeEnabled = false;
-        pi.setActiveTools(BUILD_TOOLS);
-      }
-    } else {
-      // fresh session: default to plan mode
-      planModeEnabled = true;
-      pi.setActiveTools(PLAN_TOOLS);
-      persistState();
-    }
+    activeMode = restoreMode(lastEntry?.data);
 
+    // Persist the new default mode only for fresh sessions. Existing sessions keep
+    // their latest mode entry, including legacy two-mode state.
+    if (!lastEntry) persistState();
+
+    applyActiveTools();
     updateStatus(ctx);
   });
 
