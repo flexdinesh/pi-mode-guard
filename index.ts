@@ -1,11 +1,27 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Key } from "@mariozechner/pi-tui";
-import { isDestructiveCommand } from "./guards.js";
+import { loadModeGuardConfig, type ModeGuardConfig } from "./config.js";
+import { evaluateToolCallGuards, type GuardFinding, type GuardRuleName } from "./guards.js";
 import { MODE_CONFIG, MODE_ORDER, isMode, modeLabel, nextMode, type Mode } from "./modes.js";
+
+const MODE_GUARD_RULES: Record<Mode, GuardRuleName[]> = {
+  conversation: ["destructive-bash", "runtime-binary", "home-path-outside-cwd", "absolute-path-outside-cwd"],
+  plan: ["destructive-bash", "runtime-binary", "home-path-outside-cwd", "absolute-path-outside-cwd"],
+  build: [],
+};
+
+const EMPTY_MODE_GUARD_CONFIG: ModeGuardConfig = {
+  allowedExternalDirs: [],
+};
+
+function formatGuardFinding(finding: GuardFinding): string {
+  return `Rule: ${finding.rule}\n${finding.message}`;
+}
 
 export default function modeGuardExtension(pi: ExtensionAPI): void {
   let activeMode: Mode = "conversation";
   let pendingToggle = false;
+  let modeGuardConfig: ModeGuardConfig = EMPTY_MODE_GUARD_CONFIG;
 
   function persistState(): void {
     pi.appendEntry("mode-guard", {
@@ -67,25 +83,33 @@ export default function modeGuardExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    if (activeMode === "build") return undefined;
-
-    if (event.toolName === "edit" || event.toolName === "write") {
+    if (activeMode !== "build" && (event.toolName === "edit" || event.toolName === "write")) {
       return {
         block: true,
         reason: `${modeLabel(activeMode)} mode active: ${event.toolName} is blocked. Use /build to enable file modifications.`,
       };
     }
 
-    if (event.toolName === "bash") {
-      const command = (event.input.command as string | undefined) ?? "";
-      if (isDestructiveCommand(command)) {
-        if (!ctx.hasUI) {
-          return { block: true, reason: `${modeLabel(activeMode)} mode: destructive bash blocked (no UI for confirmation).\nCommand: ${command}` };
-        }
-        const ok = await ctx.ui.confirm(`Destructive bash in ${activeMode} mode`, `Allow?\n\n${command}`);
-        if (!ok) {
-          return { block: true, reason: "Blocked by user" };
-        }
+    const enabledRules = MODE_GUARD_RULES[activeMode];
+    if (enabledRules.length === 0) return undefined;
+
+    const findings = evaluateToolCallGuards(event.toolName, event.input, enabledRules, {
+      cwd: ctx.cwd,
+      allowedExternalDirs: modeGuardConfig.allowedExternalDirs,
+    });
+
+    for (const finding of findings) {
+      const prompt = formatGuardFinding(finding);
+      if (!ctx.hasUI) {
+        return {
+          block: true,
+          reason: `${modeLabel(activeMode)} mode: ${finding.rule} blocked (no UI for confirmation).\n${prompt}`,
+        };
+      }
+
+      const ok = await ctx.ui.confirm(`${finding.rule} in ${activeMode} mode`, `Allow?\n\nTool: ${event.toolName}\n\n${prompt}`);
+      if (!ok) {
+        return { block: true, reason: "Blocked by user" };
       }
     }
 
@@ -113,6 +137,16 @@ export default function modeGuardExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    const loadedConfig = await loadModeGuardConfig(ctx.cwd);
+    modeGuardConfig = { allowedExternalDirs: loadedConfig.allowedExternalDirs };
+    for (const warning of loadedConfig.warnings) {
+      if (ctx.hasUI) {
+        ctx.ui.notify(warning, "warning");
+      } else {
+        console.warn(warning);
+      }
+    }
+
     const entries = ctx.sessionManager.getEntries();
     const lastEntry = entries
       .filter((e: { type: string; customType?: string }) => e.type === "custom" && e.customType === "mode-guard")

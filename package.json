@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "type": "module",
   "description": "Three-mode workflow guard for the pi coding agent",
+  "scripts": {
+    "test": "node --test *.test.ts"
+  },
   "keywords": [
     "pi-package",
     "pi-extension"
