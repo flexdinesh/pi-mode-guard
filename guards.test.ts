@@ -34,6 +34,31 @@ test("existing destructive bash detection still works", () => {
   assert.equal(isDestructiveCommand("git status --short"), false);
 });
 
+test("safe /dev/null redirects do not trigger destructive or absolute path guards", () => {
+  assert.deepEqual(
+    findings("bash", { command: "kubectl -n postgres-ha describe scheduledbackup postgres-cluster-backup 2>/dev/null | head -30" }),
+    [],
+  );
+  assert.deepEqual(
+    findings("bash", { command: "kubectl -n longhorn-system get recurringjob --no-headers 2> /dev/null" }),
+    [],
+  );
+  assert.deepEqual(findings("bash", { command: "curl https://example.com &>>/dev/null" }), []);
+  assert.deepEqual(findings("bash", { command: "grep pattern < /dev/null >/dev/null 2>&1" }), []);
+});
+
+test("unsafe redirects and non-redirect /dev/null paths still trigger", () => {
+  assert.equal(isDestructiveCommand("echo hi > /tmp/out"), true);
+  assert.equal(isDestructiveCommand("echo hi >> output.txt"), true);
+  assert.equal(isDestructiveCommand("echo warning >&2"), true);
+  assert.deepEqual(findings("bash", { command: "cat /dev/null" }, ["absolute-path-outside-cwd"]), [
+    "absolute-path-outside-cwd",
+  ]);
+  assert.deepEqual(findings("bash", { command: "cat /etc/hosts 2>/dev/null" }, ["absolute-path-outside-cwd"]), [
+    "absolute-path-outside-cwd",
+  ]);
+});
+
 test("runtime binaries trigger as exact words anywhere", () => {
   assert.deepEqual(detectRuntimeBinaries("node --version && python -V && /usr/bin/ruby -v"), [
     "node",

@@ -35,7 +35,7 @@ Conversation and Plan currently enable:
 
 | Rule | Applies to | Behavior |
 | ---- | ---------- | -------- |
-| `destructive-bash` | `bash.command` | Prompts for common mutating/destructive commands such as `rm`, `git commit`, `npm install`, redirects, `sudo`, etc. |
+| `destructive-bash` | `bash.command` | Prompts for common mutating/destructive commands such as `rm`, `git commit`, `npm install`, unsafe redirects, `sudo`, etc. Safe redirects to `/dev/null` are ignored. |
 | `runtime-binary` | `bash.command` | Prompts when the command text contains exact binary words for `python`, `python2`, `python3`, `node`, `ruby`, `perl`, `php`, or `lua`, including version/help calls. |
 | `home-path-outside-cwd` | `bash.command`, `read.path`, `grep.path`, `find.path`, `ls.path` | Prompts for home-like paths outside the current working directory and outside configured allowed external dirs. |
 | `absolute-path-outside-cwd` | `bash.command`, `read.path`, `grep.path`, `find.path`, `ls.path` | Prompts for Unix absolute paths outside the current working directory and outside configured allowed external dirs. |
@@ -92,6 +92,8 @@ Guarded path patterns include:
 - any Unix absolute path like `/etc/hosts`, `/tmp/foo`, `/var/log/...`
 
 URL path portions are skipped to avoid prompts for URLs such as `https://example.com/api/v1`.
+
+Safe shell redirections to `/dev/null` are also skipped during bash path checks. This applies only to redirect syntax such as `2>/dev/null`, `> /dev/null`, `&>>/dev/null`, and `</dev/null`; a normal path reference like `cat /dev/null` is still treated as an absolute path outside the current working directory.
 
 ## How it works
 

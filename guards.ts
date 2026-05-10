@@ -69,19 +69,14 @@ const HOME_PATH_PATTERN = /~(?:\/[^\s"'`<>);|&]*)?|\$\{HOME\}(?:\/[^\s"'`<>);|&]
 const ABSOLUTE_PATH_PATTERN = /(?:^|[^A-Za-z0-9_~}.:-])(\/(?:[A-Za-z0-9._~@%+\-][^\s"'`<>);|&]*)?)/g;
 const TRAILING_PUNCTUATION_PATTERN = /[,.]+$/;
 
-function isCurlCommand(command: string): boolean {
-  return /^\s*curl\b/i.test(command);
-}
-
-function stripSafeCurlRedirects(command: string): string {
-  return command
-    .replace(/\s*&>\s*\/dev\/null\b/g, "")
-    .replace(/\s*[12]?>\s*\/dev\/null\b/g, "")
-    .replace(/\s*[12]>&[12]\b/g, "");
+function stripSafeNullRedirects(command: string): string {
+  const withoutNullRedirects = command.replace(/(?:\d*>>?|&>>?|\d*<)\s*\/dev\/null\b/g, "");
+  if (withoutNullRedirects === command) return command;
+  return withoutNullRedirects.replace(/\d*>&\d+\b/g, "");
 }
 
 export function isDestructiveCommand(command: string): boolean {
-  const commandForDetection = isCurlCommand(command) ? stripSafeCurlRedirects(command) : command;
+  const commandForDetection = stripSafeNullRedirects(command);
   return DESTRUCTIVE_PATTERNS.some((pattern) => pattern.test(commandForDetection));
 }
 
@@ -191,6 +186,7 @@ export function evaluateToolCallGuards(
 
   if (toolName === "bash") {
     const command = typeof input.command === "string" ? input.command : "";
+    const commandForPathDetection = stripSafeNullRedirects(command);
 
     if (enabled.has("destructive-bash") && isDestructiveCommand(command)) {
       findings.push({
@@ -212,14 +208,14 @@ export function evaluateToolCallGuards(
     }
 
     if (enabled.has("home-path-outside-cwd")) {
-      const paths = detectHomePathMatches(command, context);
+      const paths = detectHomePathMatches(commandForPathDetection, context);
       homeExcludedPaths.push(...paths.map((path) => path.resolved));
       const finding = pathFinding("home-path-outside-cwd", paths);
       if (finding) findings.push(finding);
     }
 
     if (enabled.has("absolute-path-outside-cwd")) {
-      const finding = pathFinding("absolute-path-outside-cwd", detectAbsolutePathMatches(command, context, homeExcludedPaths));
+      const finding = pathFinding("absolute-path-outside-cwd", detectAbsolutePathMatches(commandForPathDetection, context, homeExcludedPaths));
       if (finding) findings.push(finding);
     }
 
