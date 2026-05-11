@@ -1,3 +1,5 @@
+import type { GuardRuleName } from "./guards.js";
+
 export type Mode = "conversation" | "plan" | "build";
 
 type StatusTone = "accent" | "warning" | "success";
@@ -18,6 +20,12 @@ export const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls"];
 export const BUILD_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
 export const MODE_ORDER: Mode[] = ["conversation", "plan", "build"];
+
+export const MODE_GUARD_RULES: Record<Mode, GuardRuleName[]> = {
+  conversation: ["destructive-bash", "runtime-binary", "home-path-outside-cwd", "absolute-path-outside-cwd"],
+  plan: ["destructive-bash", "runtime-binary", "home-path-outside-cwd", "absolute-path-outside-cwd"],
+  build: ["destructive-bash", "home-path-outside-cwd", "absolute-path-outside-cwd"],
+};
 
 export const MODE_CONFIG: Record<Mode, ModeConfig> = {
   conversation: {
@@ -77,4 +85,10 @@ export function modeLabel(mode: Mode): string {
 export function nextMode(mode: Mode): Mode {
   const index = MODE_ORDER.indexOf(mode);
   return MODE_ORDER[(index + 1) % MODE_ORDER.length];
+}
+
+export function applyModeSystemReminder(mode: Mode, systemPrompt: string): string | undefined {
+  const systemReminder = MODE_CONFIG[mode].systemReminder;
+  if (!systemReminder) return undefined;
+  return `${systemPrompt}\n\n${systemReminder}`;
 }

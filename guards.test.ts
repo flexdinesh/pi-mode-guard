@@ -11,6 +11,7 @@ import {
   type GuardContext,
   type GuardRuleName,
 } from "./guards.ts";
+import { MODE_CONFIG, MODE_GUARD_RULES, applyModeSystemReminder } from "./modes.ts";
 
 const ALL_RULES: GuardRuleName[] = [
   "destructive-bash",
@@ -70,6 +71,24 @@ test("runtime binaries trigger as exact words anywhere", () => {
 
 test("runtime binaries do not trigger inside larger words", () => {
   assert.deepEqual(detectRuntimeBinaries("ls node_modules && echo python_script && cat my-node-notes.txt"), []);
+});
+
+test("mode system reminders append to the system prompt only for read-only modes", () => {
+  assert.equal(
+    applyModeSystemReminder("conversation", "base prompt"),
+    `base prompt\n\n${MODE_CONFIG.conversation.systemReminder}`,
+  );
+  assert.equal(applyModeSystemReminder("build", "base prompt"), undefined);
+});
+
+test("build mode enables high-risk guards without runtime binary prompts", () => {
+  assert.deepEqual(MODE_GUARD_RULES.build, ["destructive-bash", "home-path-outside-cwd", "absolute-path-outside-cwd"]);
+  assert.equal(MODE_GUARD_RULES.build.includes("runtime-binary"), false);
+  assert.deepEqual(findings("bash", { command: "node --version" }, MODE_GUARD_RULES.build), []);
+  assert.deepEqual(findings("bash", { command: "rm -rf dist" }, MODE_GUARD_RULES.build), ["destructive-bash"]);
+  assert.deepEqual(findings("bash", { command: "cat /etc/hosts" }, MODE_GUARD_RULES.build), [
+    "absolute-path-outside-cwd",
+  ]);
 });
 
 test("home-like outside-cwd paths trigger", () => {

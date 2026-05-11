@@ -1,14 +1,8 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Key } from "@mariozechner/pi-tui";
+import { isToolCallEventType, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Key } from "@earendil-works/pi-tui";
 import { loadModeGuardConfig, type ModeGuardConfig } from "./config.js";
-import { evaluateToolCallGuards, type GuardFinding, type GuardRuleName } from "./guards.js";
-import { MODE_CONFIG, MODE_ORDER, isMode, modeLabel, nextMode, type Mode } from "./modes.js";
-
-const MODE_GUARD_RULES: Record<Mode, GuardRuleName[]> = {
-  conversation: ["destructive-bash", "runtime-binary", "home-path-outside-cwd", "absolute-path-outside-cwd"],
-  plan: ["destructive-bash", "runtime-binary", "home-path-outside-cwd", "absolute-path-outside-cwd"],
-  build: [],
-};
+import { evaluateToolCallGuards, type GuardFinding } from "./guards.js";
+import { MODE_CONFIG, MODE_GUARD_RULES, MODE_ORDER, applyModeSystemReminder, isMode, modeLabel, nextMode, type Mode } from "./modes.js";
 
 const EMPTY_MODE_GUARD_CONFIG: ModeGuardConfig = {
   allowedExternalDirs: [],
@@ -93,7 +87,20 @@ export default function modeGuardExtension(pi: ExtensionAPI): void {
     const enabledRules = MODE_GUARD_RULES[activeMode];
     if (enabledRules.length === 0) return undefined;
 
-    const findings = evaluateToolCallGuards(event.toolName, event.input, enabledRules, {
+    let guardInput = event.input;
+    if (isToolCallEventType("bash", event)) {
+      guardInput = { command: event.input.command };
+    } else if (isToolCallEventType("read", event)) {
+      guardInput = { path: event.input.path };
+    } else if (isToolCallEventType("grep", event)) {
+      guardInput = { path: event.input.path };
+    } else if (isToolCallEventType("find", event)) {
+      guardInput = { path: event.input.path };
+    } else if (isToolCallEventType("ls", event)) {
+      guardInput = { path: event.input.path };
+    }
+
+    const findings = evaluateToolCallGuards(event.toolName, guardInput, enabledRules, {
       cwd: ctx.cwd,
       allowedExternalDirs: modeGuardConfig.allowedExternalDirs,
     });
@@ -116,17 +123,11 @@ export default function modeGuardExtension(pi: ExtensionAPI): void {
     return undefined;
   });
 
-  pi.on("before_agent_start", async () => {
-    const systemReminder = MODE_CONFIG[activeMode].systemReminder;
-    if (!systemReminder) return;
+  pi.on("before_agent_start", async (event) => {
+    const systemPrompt = applyModeSystemReminder(activeMode, event.systemPrompt);
+    if (!systemPrompt) return undefined;
 
-    return {
-      message: {
-        customType: `mode-guard-${activeMode}`,
-        content: systemReminder,
-        display: false,
-      },
-    };
+    return { systemPrompt };
   });
 
   pi.on("turn_end", async (_event, ctx) => {

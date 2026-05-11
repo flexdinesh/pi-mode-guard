@@ -1,6 +1,6 @@
 # pi-mode-guard
 
-Three-mode workflow for the [pi coding agent](https://github.com/mariozechner/pi-coding-agent).
+Three-mode workflow for the [pi coding agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent).
 
 ## What it does
 
@@ -8,7 +8,7 @@ Enforces **Conversation mode** (read-only) by default. You must explicitly switc
 
 - **Conversation mode** — `edit` and `write` tools are blocked. Guarded bash/path activity requires confirmation. Non-destructive read/inspect commands pass freely unless they reference guarded paths. The model is guided to explore, discuss, ask questions, and avoid steering prematurely toward implementation.
 - **Plan mode** — same read-only permissions as Conversation mode, but the model is guided toward analysis and planning.
-- **Build mode** — all tools unlocked. Build-specific safety rules are intentionally not enabled yet.
+- **Build mode** — all tools unlocked. Destructive bash and guarded external path activity still require confirmation. Runtime binaries such as `node` and `python` run without extra mode-guard prompts unless another rule matches.
 
 The active mode persists across sessions.
 
@@ -31,18 +31,18 @@ The status bar shows the current mode:
 
 Guard checks are explicit named rules so each mode can choose which rules to apply.
 
-Conversation and Plan currently enable:
+Conversation and Plan currently enable all guard rules. Build enables the high-risk bash/path rules and intentionally excludes `runtime-binary`.
 
-| Rule | Applies to | Behavior |
-| ---- | ---------- | -------- |
-| `destructive-bash` | `bash.command` | Prompts for common mutating/destructive commands such as `rm`, `git commit`, `npm install`, unsafe redirects, `sudo`, etc. Safe redirects to `/dev/null` are ignored. |
-| `runtime-binary` | `bash.command` | Prompts when the command text contains exact binary words for `python`, `python2`, `python3`, `node`, `ruby`, `perl`, `php`, or `lua`, including version/help calls. |
-| `home-path-outside-cwd` | `bash.command`, `read.path`, `grep.path`, `find.path`, `ls.path` | Prompts for home-like paths outside the current working directory and outside configured allowed external dirs. |
-| `absolute-path-outside-cwd` | `bash.command`, `read.path`, `grep.path`, `find.path`, `ls.path` | Prompts for Unix absolute paths outside the current working directory and outside configured allowed external dirs. |
+| Rule | Enabled in | Applies to | Behavior |
+| ---- | ---------- | ---------- | -------- |
+| `destructive-bash` | Conversation, Plan, Build | `bash.command` | Prompts for common mutating/destructive commands such as `rm`, `git commit`, `npm install`, unsafe redirects, `sudo`, etc. Safe redirects to `/dev/null` are ignored. |
+| `runtime-binary` | Conversation, Plan | `bash.command` | Prompts when the command text contains exact binary words for `python`, `python2`, `python3`, `node`, `ruby`, `perl`, `php`, or `lua`, including version/help calls. |
+| `home-path-outside-cwd` | Conversation, Plan, Build | `bash.command`, `read.path`, `grep.path`, `find.path`, `ls.path` | Prompts for home-like paths outside the current working directory and outside configured allowed external dirs. |
+| `absolute-path-outside-cwd` | Conversation, Plan, Build | `bash.command`, `read.path`, `grep.path`, `find.path`, `ls.path` | Prompts for Unix absolute paths outside the current working directory and outside configured allowed external dirs. |
 
-Build currently enables no guard rules.
+Build mode does not enable `runtime-binary`, so normal build and test commands using runtimes stay frictionless.
 
-When multiple rules match, pi prompts once per rule in this order for bash commands:
+When multiple rules match, pi prompts once per rule in this order for bash commands. Build skips the `runtime-binary` step.
 
 1. `destructive-bash`
 2. `runtime-binary`
@@ -100,8 +100,8 @@ Safe shell redirections to `/dev/null` are also skipped during bash path checks.
 The extension hooks into pi's event system:
 
 - **`session_start`** — loads guard config, restores the previous mode, or defaults to Conversation on a fresh session.
-- **`tool_call`** — intercepts `edit`/`write` in Conversation and Plan modes. Applies the active mode's named guard rules and prompts for confirmation.
-- **`before_agent_start`** — injects a mode-specific reminder into the system context when in Conversation or Plan mode.
+- **`tool_call`** — blocks `edit`/`write` in Conversation and Plan modes. Applies the active mode's named guard rules and prompts for confirmation.
+- **`before_agent_start`** — appends a mode-specific reminder to the per-turn system prompt when in Conversation or Plan mode.
 - **`turn_end`** — applies any queued mode toggle.
 - **`session_shutdown`** — clears pending toggle state.
 
