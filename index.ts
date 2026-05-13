@@ -2,7 +2,7 @@ import { isToolCallEventType, type ExtensionAPI, type ExtensionContext } from "@
 import { Key } from "@earendil-works/pi-tui";
 import { loadModeGuardConfig, type ModeGuardConfig } from "./config.js";
 import { evaluateToolCallGuards, type GuardFinding } from "./guards.js";
-import { MODE_CONFIG, MODE_GUARD_RULES, MODE_ORDER, applyModeSystemReminder, isMode, modeLabel, nextMode, type Mode } from "./modes.js";
+import { DEFAULT_MODE, MODE_CONFIG, MODE_GUARD_RULES, MODE_ORDER, applyModeSystemReminder, isMode, modeLabel, nextMode, type Mode } from "./modes.js";
 
 const EMPTY_MODE_GUARD_CONFIG: ModeGuardConfig = {
   allowedExternalDirs: [],
@@ -13,7 +13,7 @@ function formatGuardFinding(finding: GuardFinding): string {
 }
 
 export default function modeGuardExtension(pi: ExtensionAPI): void {
-  let activeMode: Mode = "conversation";
+  let activeMode: Mode = DEFAULT_MODE;
   let pendingToggle = false;
   let modeGuardConfig: ModeGuardConfig = EMPTY_MODE_GUARD_CONFIG;
 
@@ -48,7 +48,7 @@ export default function modeGuardExtension(pi: ExtensionAPI): void {
     if (isMode(data?.mode)) return data.mode;
     if (data?.planMode === true) return "plan";
     if (data?.planMode === false) return "build";
-    return "conversation";
+    return DEFAULT_MODE;
   }
 
   for (const mode of MODE_ORDER) {
@@ -60,7 +60,7 @@ export default function modeGuardExtension(pi: ExtensionAPI): void {
   }
 
   pi.registerShortcut(Key.ctrlAlt("p"), {
-    description: "Cycle conversation/plan/build mode",
+    description: "Cycle plan/build/conversation mode",
     handler: async (ctx) => {
       if (!ctx.isIdle()) {
         if (pendingToggle) {

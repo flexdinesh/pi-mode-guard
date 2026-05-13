@@ -19,7 +19,8 @@ export interface ModeConfig {
 export const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls"];
 export const BUILD_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
-export const MODE_ORDER: Mode[] = ["conversation", "plan", "build"];
+export const DEFAULT_MODE: Mode = "plan";
+export const MODE_ORDER: Mode[] = ["plan", "build", "conversation"];
 
 export const MODE_GUARD_RULES: Record<Mode, GuardRuleName[]> = {
   conversation: ["destructive-bash", "runtime-binary", "home-path-outside-cwd", "absolute-path-outside-cwd"],

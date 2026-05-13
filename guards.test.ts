@@ -11,7 +11,7 @@ import {
   type GuardContext,
   type GuardRuleName,
 } from "./guards.ts";
-import { MODE_CONFIG, MODE_GUARD_RULES, applyModeSystemReminder } from "./modes.ts";
+import { DEFAULT_MODE, MODE_CONFIG, MODE_GUARD_RULES, MODE_ORDER, applyModeSystemReminder } from "./modes.ts";
 
 const ALL_RULES: GuardRuleName[] = [
   "destructive-bash",
@@ -71,6 +71,11 @@ test("runtime binaries trigger as exact words anywhere", () => {
 
 test("runtime binaries do not trigger inside larger words", () => {
   assert.deepEqual(detectRuntimeBinaries("ls node_modules && echo python_script && cat my-node-notes.txt"), []);
+});
+
+test("fresh sessions default to plan mode and cycle plan/build/conversation", () => {
+  assert.equal(DEFAULT_MODE, "plan");
+  assert.deepEqual(MODE_ORDER, ["plan", "build", "conversation"]);
 });
 
 test("mode system reminders append to the system prompt only for read-only modes", () => {

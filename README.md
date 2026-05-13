@@ -4,7 +4,7 @@ Three-mode workflow for the [pi coding agent](https://github.com/earendil-works/
 
 ## What it does
 
-Enforces **Conversation mode** (read-only) by default. You must explicitly switch to **Build mode** to make changes.
+Enforces **Plan mode** (read-only) by default. You must explicitly switch to **Build mode** to make changes.
 
 - **Conversation mode** — `edit` and `write` tools are blocked. Guarded bash/path activity requires confirmation. Non-destructive read/inspect commands pass freely unless they reference guarded paths. The model is guided to explore, discuss, ask questions, and avoid steering prematurely toward implementation.
 - **Plan mode** — same read-only permissions as Conversation mode, but the model is guided toward analysis and planning.
@@ -19,7 +19,7 @@ The active mode persists across sessions.
 | Enter Conversation mode | `/convo`                                     |
 | Enter Plan mode         | `/plan`                                      |
 | Enter Build mode        | `/build`                                     |
-| Cycle mode              | `Ctrl + Alt + P` _(Conversation → Plan → Build; queues if agent is busy)_ |
+| Cycle mode              | `Ctrl + Alt + P` _(Plan → Build → Conversation; queues if agent is busy)_ |
 
 The status bar shows the current mode:
 
@@ -99,7 +99,7 @@ Safe shell redirections to `/dev/null` are also skipped during bash path checks.
 
 The extension hooks into pi's event system:
 
-- **`session_start`** — loads guard config, restores the previous mode, or defaults to Conversation on a fresh session.
+- **`session_start`** — loads guard config, restores the previous mode, or defaults to Plan on a fresh session.
 - **`tool_call`** — blocks `edit`/`write` in Conversation and Plan modes. Applies the active mode's named guard rules and prompts for confirmation.
 - **`before_agent_start`** — appends a mode-specific reminder to the per-turn system prompt when in Conversation or Plan mode.
 - **`turn_end`** — applies any queued mode toggle.
